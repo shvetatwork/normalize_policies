@@ -1,0 +1,279 @@
+#scripts to generate separate output files and also tackle the policy enhancement and the creation of a single unified PB.
+
+
+#1. Coverage Analysis (SCP vs. Permissions Boundaries)
+
+import json
+from typing import Dict, List, Set
+import csv
+
+
+def load_policy(file_path: str) -> Dict:
+   """Loads a JSON policy from a file."""
+   with open(file_path, 'r') as f:
+      return json.load(f)
+
+
+def extract_actions(policy: Dict) -> Set[str]:
+   """Extracts AWS actions from a policy."""
+   actions = set()
+   if 'Statement' not in policy:
+      return actions
+   for statement in policy['Statement']:
+      if 'Action' in statement:
+         if isinstance(statement['Action'], list):
+            actions.update(statement['Action'])
+         else:
+            actions.add(statement['Action'])
+   return actions
+
+
+def compare_scp_vs_pb(scp_policy: Dict, pb_policy: Dict) -> Set[str]:
+   """Compares SCP and PB actions, returning missing actions in SCP."""
+   scp_actions = extract_actions(scp_policy)
+   pb_actions = extract_actions(pb_policy)
+   return pb_actions - scp_actions
+
+
+def analyze_all_pbs(scp_files: List[str], pb_files: List[str]) -> Dict[str, Set[str]]:
+    """Compares a single SCP against multiple PBs."""
+    if len(scp_files) != 2:
+        raise ValueError("Exactly 2 SCP files are needed for comparison")
+
+    scp_policies = [load_policy(f) for f in scp_files]
+    scp_actions = set()
+    for scp_policy in scp_policies:
+        scp_actions.update(extract_actions(scp_policy))
+
+    results = {}
+    for pb_file in pb_files:
+        pb_policy = load_policy(pb_file)
+        pb_actions = extract_actions(pb_policy)
+        missing_actions = pb_actions - scp_actions
+        results[pb_file] = missing_actions
+    return results
+
+def write_scp_pb_analysis_to_csv(analysis_results: Dict, output_file: str):
+    """Writes the SCP vs PB analysis results to a CSV file."""
+    with open(output_file, 'w', newline='') as csvfile:
+        csv_writer = csv.writer(csvfile)
+        csv_writer.writerow(['Permissions Boundary File', 'Missing Actions in SCP'])
+        for pb_file, missing_actions in analysis_results.items():
+            csv_writer.writerow([pb_file, ', '.join(missing_actions)])
+
+if __name__ == '__main__':
+   # Placeholder - Replace with your actual file paths
+   scp_files = ["scp1.json", "scp2.json"]
+   pb_files = [f"pb_{i}.json" for i in range(1, 40)]  # Assumes you have pb_1.json, pb_2.json, ..., pb_39.json
+
+   analysis_results = analyze_all_pbs(scp_files, pb_files)
+   write_scp_pb_analysis_to_csv(analysis_results, "scp_pb_compare_analysis.csv")
+   print("SCP vs PB analysis complete and saved to scp_pb_compare_analysis.csv")
+
+
+#2. Comparison of Permissions Boundaries
+
+import json
+from typing import Dict, List, Set
+import csv
+
+
+def load_policy(file_path: str) -> Dict:
+   """Loads a JSON policy from a file."""
+   with open(file_path, 'r') as f:
+      return json.load(f)
+
+
+def extract_statements(policy: Dict) -> List[Dict]:
+    """Extracts all statements from a policy."""
+    if 'Statement' not in policy:
+        return []
+    return policy['Statement']
+
+
+def normalize_statement(statement: Dict) -> str:
+   """Converts a statement to a string for easy comparison."""
+   # Ensure consistent ordering of keys within a statement for comparison
+   return json.dumps(statement, sort_keys=True)
+
+
+def find_common_statements(pb_policies: List[Dict]) -> List[Dict]:
+    """Finds statements that appear in all given policies."""
+    all_statements = [set(normalize_statement(s) for s in extract_statements(p)) for p in pb_policies]
+      
+    if not all_statements:
+        return [] # Handle cases where we have no statements to check
+      
+    common_statements_strings = set.intersection(*all_statements)
+    # Convert back to dict after the check, since we normalized them to compare using sets
+    common_statements = [json.loads(s) for s in common_statements_strings]
+
+    return common_statements
+   
+def extract_custom_statements(pb_policy: Dict, common_statements: List[Dict]) -> List[Dict]:
+   """Extracts statements that are unique to a specific policy"""
+   pb_statements = set(normalize_statement(s) for s in extract_statements(pb_policy))
+   common_statements_string = set(normalize_statement(s) for s in common_statements)
+   custom_statements_strings = pb_statements - common_statements_string
+   custom_statements = [json.loads(s) for s in custom_statements_strings]
+   return custom_statements
+
+
+def compare_all_pbs(pb_files: List[str]) -> Dict:
+   """Compares all Permissions Boundaries and finds the common block and custom block for each PB"""
+   pb_policies = [load_policy(f) for f in pb_files]
+   common_statements = find_common_statements(pb_policies)
+   results = {}
+   for i, pb_file in enumerate(pb_files):
+        custom_statements = extract_custom_statements(pb_policies[i], common_statements)
+        results[pb_file] = {
+            "common_statements": common_statements,
+            "custom_statements": custom_statements
+        }
+   return results
+
+def write_pb_analysis_to_csv(analysis_results: Dict, output_file: str):
+    """Writes the PB analysis results to a CSV file."""
+    with open(output_file, 'w', newline='') as csvfile:
+      csv_writer = csv.writer(csvfile)
+      csv_writer.writerow(["Permissions Boundary File", "Common Statements", "Custom Statements"])
+      for pb_file, analysis in analysis_results.items():
+          common_statements_str = json.dumps(analysis["common_statements"])
+          custom_statements_str = json.dumps(analysis["custom_statements"])
+          csv_writer.writerow([pb_file, common_statements_str, custom_statements_str])
+
+
+if __name__ == '__main__':
+   # Placeholder - Replace with your actual file paths
+   pb_files = [f"pb_{i}.json" for i in range(1, 40)]  # Assumes you have pb_1.json, pb_2.json, ..., pb_39.json
+
+   analysis_results = compare_all_pbs(pb_files)
+   write_pb_analysis_to_csv(analysis_results, "normalize_pb_analysis.csv")
+   print("PB normalization analysis complete and saved to normalize_pb_analysis.csv")
+content_copy
+download
+Use code with caution.
+Python
+
+3. Enhancing SCP and Creating a Unified PB
+
+import json
+from typing import Dict, List, Set
+
+
+def load_policy(file_path: str) -> Dict:
+   """Loads a JSON policy from a file."""
+   with open(file_path, 'r') as f:
+      return json.load(f)
+
+def extract_statements(policy: Dict) -> List[Dict]:
+    """Extracts all statements from a policy."""
+    if 'Statement' not in policy:
+        return []
+    return policy['Statement']
+
+
+def normalize_statement(statement: Dict) -> str:
+   """Converts a statement to a string for easy comparison."""
+   # Ensure consistent ordering of keys within a statement for comparison
+   return json.dumps(statement, sort_keys=True)
+
+
+def find_common_statements(pb_policies: List[Dict]) -> List[Dict]:
+    """Finds statements that appear in all given policies."""
+    all_statements = [set(normalize_statement(s) for s in extract_statements(p)) for p in pb_policies]
+    if not all_statements:
+        return []  # Handle cases where we have no statements to check
+    common_statements_strings = set.intersection(*all_statements)
+    common_statements = [json.loads(s) for s in common_statements_strings]
+    return common_statements
+   
+
+def create_unified_pb(pb_files: List[str], pb_policies: List[Dict]) -> Dict:
+    """Creates a unified Permissions Boundary with custom blocks for each PB."""
+    unified_pb = {
+        "Version": "2012-10-17",
+        "Statement": []
+    }
+    common_statements = find_common_statements(pb_policies)
+    unified_pb["Statement"].extend(common_statements)
+
+
+    for i, pb_file in enumerate(pb_files):
+        custom_statements = extract_custom_statements(pb_policies[i], common_statements)
+        
+        for statement in custom_statements:
+           statement['Sid'] = f"{pb_file.replace('.json','').replace('pb_','')}" # We will add the name of PB as sid in the statement
+        unified_pb["Statement"].extend(custom_statements)
+
+    return unified_pb
+
+def extract_custom_statements(pb_policy: Dict, common_statements: List[Dict]) -> List[Dict]:
+      """Extracts statements that are unique to a specific policy"""
+      pb_statements = set(normalize_statement(s) for s in extract_statements(pb_policy))
+      common_statements_string = set(normalize_statement(s) for s in common_statements)
+      custom_statements_strings = pb_statements - common_statements_string
+      custom_statements = [json.loads(s) for s in custom_statements_strings]
+      return custom_statements
+
+
+def enhance_scp_with_common_pb_statements(scp_files: List[str], pb_files: List[str]) -> List[Dict]:
+    """Enhances the SCP policies with statements from all PBs"""
+
+    if len(scp_files) != 2:
+        raise ValueError("Exactly 2 SCP files are needed for comparison")
+
+    scp_policies = [load_policy(f) for f in scp_files]
+    pb_policies = [load_policy(f) for f in pb_files]
+    common_statements = find_common_statements(pb_policies)
+
+    # Add common statements to SCP policies
+    for scp_policy in scp_policies:
+       if 'Statement' not in scp_policy:
+          scp_policy['Statement'] = []
+       scp_policy['Statement'].extend(common_statements)
+    return scp_policies
+
+if __name__ == '__main__':
+    # Placeholder - Replace with your actual file paths
+    scp_files = ["scp1.json", "scp2.json"]
+    pb_files = [f"pb_{i}.json" for i in range(1, 40)]  # Assumes you have pb_1.json, pb_2.json, ..., pb_39.json
+
+    pb_policies = [load_policy(f) for f in pb_files]
+
+    # Create and save the unified PB
+    unified_pb = create_unified_pb(pb_files, pb_policies)
+    with open("unified_pb.json", "w") as f:
+        json.dump(unified_pb, f, indent=2)
+    print("Unified PB created and saved to unified_pb.json")
+
+    # Enhance and save the SCP
+    enhanced_scps = enhance_scp_with_common_pb_statements(scp_files, pb_files)
+    for i, enhanced_scp in enumerate(enhanced_scps):
+        with open(f"enhanced_scp{i+1}.json", "w") as f:
+            json.dump(enhanced_scp, f, indent=2)
+    print("Enhanced SCP created and saved to enhanced_scp1.json and enhanced_scp2.json")
+
+
+'''
+Separate Output Files: The write_scp_pb_analysis_to_csv() and write_pb_analysis_to_csv() functions have been added to write the results to respective CSV files.
+Unified PB Creation:
+create_unified_pb function combines the common statements from all PBs and then adds any additional statement from each PB, adding their PB name as statement ID.
+SCP Enhancement
+enhance_scp_with_common_pb_statements identifies common statements from all PBs and adds to the existing SCPs.
+CSV Output: The analysis results are now written to CSV files for better readability.
+
+How to Use the Modified Scripts
+Place your SCPs and PBs as before in the same directory as your Python scripts.
+Run the scripts: Execute the updated Python scripts. They will generate:
+scp_pb_compare_analysis.csv: Containing the coverage analysis between PBs and SCP
+normalize_pb_analysis.csv: Containing the PB normalization result, with common and custom policy statements.
+unified_pb.json: Containing the unified Permissions Boundary policy.
+enhanced_scp1.json, enhanced_scp2.json: Containing the enhanced SCP policy files.
+Important Notes
+Statement ID (Sid): The unified PB script will now use the name of PB as Sid in each of the custom statements. Ensure they are unique within your policies or adjust according to your policy statement best practices.
+'''
+
+Error Handling: Add more robust error handling, especially if the input data is not uniform in format.
+
+Let me know if you have any other questions!
