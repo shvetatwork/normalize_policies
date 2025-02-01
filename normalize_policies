@@ -1,0 +1,204 @@
+
+
+'''
+Overall Strategy
+Data Extraction:
+Download all SCPs and Permissions Boundaries policies from AWS.
+Store them in a structured format (e.g., JSON files).
+Analysis Tools:
+Develop Python scripts to analyze the policies (JSON).
+Focus on identifying common statements, differences, and potential conflicts.
+Policy Design:
+Create a unified, "common" Permissions Boundary.
+Design exception blocks with conditions for specific use cases.
+Update SCPs to minimize overlap with Permissions Boundaries.
+Implementation & Testing:
+Roll out the new policies incrementally (start with non-critical accounts).
+Continuously test to ensure no unexpected changes in permissions.
+'''
+
+#1. Coverage Analysis (SCP vs. Permissions Boundaries)
+
+import json
+from typing import Dict, List, Set
+
+def load_policy(file_path: str) -> Dict:
+    """Loads a JSON policy from a file."""
+    with open(file_path, 'r') as f:
+        return json.load(f)
+
+def extract_actions(policy: Dict) -> Set[str]:
+    """Extracts AWS actions from a policy."""
+    actions = set()
+    if 'Statement' not in policy:
+        return actions
+    for statement in policy['Statement']:
+        if 'Action' in statement:
+            if isinstance(statement['Action'], list):
+                actions.update(statement['Action'])
+            else:
+                actions.add(statement['Action'])
+    return actions
+
+
+def compare_scp_vs_pb(scp_policy: Dict, pb_policy: Dict) -> Set[str]:
+    """Compares SCP and PB actions, returning missing actions in SCP."""
+    scp_actions = extract_actions(scp_policy)
+    pb_actions = extract_actions(pb_policy)
+    return pb_actions - scp_actions
+
+def analyze_all_pbs(scp_files: List[str], pb_files: List[str]) -> Dict[str, Set[str]]:
+     """Compares a single SCP against multiple PBs."""
+     if len(scp_files) != 2:
+         raise ValueError("Exactly 2 SCP files are needed for comparison")
+
+     scp_policies = [load_policy(f) for f in scp_files]
+     scp_actions = set()
+     for scp_policy in scp_policies:
+         scp_actions.update(extract_actions(scp_policy))
+
+     results = {}
+     for pb_file in pb_files:
+         pb_policy = load_policy(pb_file)
+         pb_actions = extract_actions(pb_policy)
+         missing_actions = pb_actions - scp_actions
+         results[pb_file] = missing_actions
+     return results
+
+if __name__ == '__main__':
+    # Placeholder - Replace with your actual file paths
+    scp_files = ["scp1.json", "scp2.json"]
+    pb_files = [f"pb_{i}.json" for i in range(1, 40)]  # Assumes you have pb_1.json, pb_2.json, ..., pb_39.json
+
+    analysis_results = analyze_all_pbs(scp_files, pb_files)
+    for pb_file, missing_actions in analysis_results.items():
+        print(f"Permissions Boundary: {pb_file}")
+        if missing_actions:
+             print(f"   Missing Actions in SCP: {', '.join(missing_actions)}")
+        else:
+            print("   No missing actions in SCPs")
+    print("Analysis complete")
+
+
+'''
+load_policy(file_path): Loads the JSON policy file.
+extract_actions(policy): Parses a policy and collects all actions as a set.
+compare_scp_vs_pb(scp_policy, pb_policy): Computes the actions present in the PB but not in SCP.
+analyze_all_pbs(scp_files, pb_files): Iterates through all the PB and performs the compare_scp_vs_pb and generate a list of missed actions in SCP.
+'''
+
+#2. Comparison of Permissions Boundaries
+
+import json
+from typing import Dict, List, Set
+
+def load_policy(file_path: str) -> Dict:
+   """Loads a JSON policy from a file."""
+   with open(file_path, 'r') as f:
+      return json.load(f)
+
+def extract_statements(policy: Dict) -> List[Dict]:
+     """Extracts all statements from a policy."""
+     if 'Statement' not in policy:
+         return []
+     return policy['Statement']
+
+def normalize_statement(statement: Dict) -> str:
+   """Converts a statement to a string for easy comparison."""
+   # Ensure consistent ordering of keys within a statement for comparison
+   return json.dumps(statement, sort_keys=True)
+
+
+def find_common_statements(pb_policies: List[Dict]) -> List[Dict]:
+   """Finds statements that appear in all given policies."""
+   all_statements = [set(normalize_statement(s) for s in extract_statements(p)) for p in pb_policies]
+   
+   if not all_statements:
+       return [] # Handle cases where we have no statements to check
+   
+   common_statements_strings = set.intersection(*all_statements)
+   # Convert back to dict after the check, since we normalized them to compare using sets
+   common_statements = [json.loads(s) for s in common_statements_strings]
+
+   return common_statements
+
+def extract_custom_statements(pb_policy: Dict, common_statements: List[Dict]) -> List[Dict]:
+   """Extracts statements that are unique to a specific policy"""
+   pb_statements = set(normalize_statement(s) for s in extract_statements(pb_policy))
+   common_statements_string = set(normalize_statement(s) for s in common_statements)
+   custom_statements_strings = pb_statements - common_statements_string
+   custom_statements = [json.loads(s) for s in custom_statements_strings]
+   return custom_statements
+
+def compare_all_pbs(pb_files: List[str]) -> Dict:
+     """Compares all Permissions Boundaries and finds the common block and custom block for each PB"""
+     pb_policies = [load_policy(f) for f in pb_files]
+     common_statements = find_common_statements(pb_policies)
+     results = {}
+     for i, pb_file in enumerate(pb_files):
+         custom_statements = extract_custom_statements(pb_policies[i], common_statements)
+         results[pb_file] = {
+             "common_statements": common_statements,
+             "custom_statements": custom_statements
+         }
+     return results
+
+
+if __name__ == '__main__':
+   # Placeholder - Replace with your actual file paths
+   pb_files = [f"pb_{i}.json" for i in range(1, 40)]  # Assumes you have pb_1.json, pb_2.json, ..., pb_39.json
+
+   analysis_results = compare_all_pbs(pb_files)
+   for pb_file, analysis in analysis_results.items():
+         print(f"Permissions Boundary: {pb_file}")
+         print("  Common Statements:")
+         for statement in analysis["common_statements"]:
+               print(f"   {json.dumps(statement)}")
+         print("   Custom Statements:")
+         for statement in analysis["custom_statements"]:
+               print(f"    {json.dumps(statement)}")
+   print("Analysis Complete")
+
+
+'''
+load_policy(file_path): Loads the JSON policy file.
+extract_statements(policy): Extracts all statements from a policy.
+normalize_statement(statement): Normalizes the statement for set comparison
+find_common_statements(pb_policies): Finds the common statements that appear in all policies
+extract_custom_statements(pb_policy, common_statements): Finds the statements that are in PB policy, but not in common statements.
+compare_all_pbs(pb_files): Iterates through all the PBs, performs the find_common_statements, and extract_custom_statements and stores the result.
+
+Next Steps
+
+Gather Your Data: Download the SCPs and Permissions Boundary policies into JSON format and place them in the same directory.
+
+Run Scripts: Execute the above Python scripts and store the output in a CSV format for easy consumption.
+
+Review Output: Analyze the generated CSV output carefully and derive the common permissions and the exceptions in the policies.
+
+Develop Unified Policy: Design a new consolidated SCP and Permission Boundary. This process may take some time as its important that the new policy does not cause any permission issue in the accounts.
+
+Incremental Implementation: Gradually roll out the new policies.
+
+Test and Monitor: Thoroughly test the policies on non-production accounts, before pushing to production.
+
+Important Considerations
+
+Policy Structure: Pay close attention to how the "Action," "Resource," "Effect," and "Condition" elements are defined in your policies.
+
+Conditions: When combining exceptions, you'll need to be meticulous with your condition keys to ensure they apply only to the intended accounts.
+
+Least Privilege: Throughout this process, prioritize the principle of least privilege and grant only necessary permissions.
+
+Testing: It's absolutely critical to test these policies thoroughly in a non-production environment first. You should start with a few accounts and continue to monitor the effect on your service.
+
+Version Control: It's important that these JSON files are part of version control to ensure repeatability.
+
+AWS SDK: For large scale deployments, you should consider using AWS SDK (boto3) to get policies, instead of getting them manually.
+
+Further Automation
+
+Boto3 Integration: Use the AWS SDK for Python (boto3) to automate downloading policies from AWS, updating/creating them, and setting permissions, rather than manual downloads and uploads.
+
+CI/CD Pipeline: Integrate your policy management into a CI/CD pipeline to ensure policies are applied consistently.
+'''
