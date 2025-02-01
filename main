@@ -1,0 +1,48 @@
+'''
+my_project/
+    ├── main.py            # main python file that calls other scripts
+    ├── analyze_scp_pb.py    # For SCP vs PB analysis
+    ├── normalize_pbs.py     # For comparing and normalizing PBs
+    ├── manage_policies.py   # For enhancing SCP and creating unified PB
+    ├── scp1.json             # Sample SCP policy (replace with your actual files)
+    ├── scp2.json             # Sample SCP policy (replace with your actual files)
+    ├── pb_1.json             # Sample PB policy (replace with your actual files)
+    ├── pb_2.json             # Sample PB policy (replace with your actual files)
+    ├── ...                  # Add all PB json files here
+'''
+
+# main.py
+from analyze_scp_pb import analyze_all_pbs, write_scp_pb_analysis_to_csv
+from normalize_pbs import compare_all_pbs, write_pb_analysis_to_csv
+from manage_policies import enhance_scp_with_common_pb_statements, create_unified_pb, load_policy
+import json
+if __name__ == '__main__':
+    # Placeholder - Replace with your actual file paths
+    scp_files = ["scp1.json", "scp2.json"]
+    pb_files = [f"pb_{i}.json" for i in range(1, 40)]
+
+    # 1. Run SCP vs PB Analysis
+    analysis_results = analyze_all_pbs(scp_files, pb_files)
+    write_scp_pb_analysis_to_csv(analysis_results, "scp_pb_compare_analysis.csv")
+    print("SCP vs PB analysis complete and saved to scp_pb_compare_analysis.csv")
+
+    # 2. Run PB normalization Analysis
+    pb_analysis_results = compare_all_pbs(pb_files)
+    write_pb_analysis_to_csv(pb_analysis_results, "normalize_pb_analysis.csv")
+    print("PB normalization analysis complete and saved to normalize_pb_analysis.csv")
+
+    # 3. Create the unified PB
+    pb_policies = [load_policy(f) for f in pb_files]
+    unified_pb = create_unified_pb(pb_files, pb_policies)
+    with open("unified_pb.json", "w") as f:
+        json.dump(unified_pb, f, indent=2)
+    print("Unified PB created and saved to unified_pb.json")
+
+
+    # 4. Enhance SCP
+    enhanced_scps = enhance_scp_with_common_pb_statements(scp_files, pb_files)
+    for i, enhanced_scp in enumerate(enhanced_scps):
+        with open(f"enhanced_scp{i+1}.json", "w") as f:
+            json.dump(enhanced_scp, f, indent=2)
+    print("Enhanced SCP created and saved to enhanced_scp1.json and enhanced_scp2.json")
+
